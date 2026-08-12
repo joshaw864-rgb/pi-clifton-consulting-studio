@@ -1,0 +1,53 @@
+e.toLowerCase()),...a.clifton.top5.slice(0,2).map(r=>r.theme.overuse.toLowerCase())]))}.</p>
+        <p>That is where the development work gets practical. We are not trying to make you less like yourself. We are trying to give you more choice about when to lean into a pattern, when to turn the dial down and when to invite somebody with a different approach into the work. The question I would leave you with is: “${esc((a.development[0]||a.topInsights[0])?.validationQuestion||'Where does this feel most true in your real life right now?')}”</p>
+      </section>${qualityNote(a)}`;
+  }
+'''
+s=s[:m.start()]+new_readback+s[m.end():]
+
+# Manager report replacement human/no codes
+pat=r"  function managerReport\(a\)\{.*?\n  \}\n\n"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('managerReport not found')
+new_mgr=r'''  function managerReport(a){
+    const p=a.person, factors=a.pi.factors;
+    return `${reportHeader(a,'Leader / Manager Guide','How to build trust and get the best from this person')}${reportSnapshot(a)}
+      <section class="report-section"><div class="report-section-heading"><span>Manager readout</span><h2>What ${esc(p.name)} is likely to respond to</h2></div><div class="manager-grid">
+        <article><h3>Communicate</h3><ul>${a.clifton.top5.slice(0,5).map(r=>`<li>${esc(r.theme.communication)}</li>`).join('')}</ul></article>
+        <article><h3>Motivate</h3><ul>${a.needs.slice(0,9).map(n=>`<li>${esc(n.text)}</li>`).join('')}</ul></article>
+        <article><h3>Delegate</h3><ul>${a.pi.topCombinations.slice(0,4).map(c=>`<li>${esc(c.delegation)}</li>`).join('')}${a.clifton.top5.slice(0,2).map(r=>`<li>${esc(r.theme.manager_guidance)}</li>`).join('')}</ul></article>
+        <article><h3>Give feedback</h3><ul>${factors.map(f=>`<li><strong>${esc(f.name)}:</strong> ${esc(f.manager)}</li>`).join('')}</ul></article>
+      </div></section>
+      <section class="report-section"><div class="report-section-heading"><span>What you may notice</span><h2>Four work-style signals to understand rather than misread</h2></div><div class="compact-card-grid">${factors.map(f=>`<article><h3>${esc(f.name)} · ${esc(humanFactorLabel(f.code,f.value))}</h3><p>${esc(factorRelationalSentence(f))}</p><p><strong>When pressure rises:</strong> ${esc(f.pressure)}</p><p><strong>Ask:</strong> ${esc(f.coachingQuestion)}</p></article>`).join('')}</div></section>
+      ${reportInsightCards(a,6,false)}${bestPressure(a)}
+      <section class="report-section"><div class="report-section-heading"><span>One-on-one prompts</span><h2>Questions that can build trust quickly</h2></div><ol class="question-list">${uniqText([...a.topInsights.slice(0,6).map(i=>i.validationQuestion),...a.clifton.top5.map(r=>r.theme.coaching_question)]).slice(0,10).map(q=>`<li>${esc(q)}</li>`).join('')}</ol></section>
+      ${qualityNote(a)}`;
+  }
+
+'''
+s=s[:m.start()]+new_mgr+s[m.end():]
+
+# Coach report replacement, human but evidence-aware
+pat=r"  function coachReport\(a\)\{.*?\n  \}\n\n"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('coachReport not found')
+new_coach=r'''  function coachReport(a){
+    const hypotheses=a.insights.slice(0,10);
+    return `${reportHeader(a,'Consultant Deep Dive','The evidence underneath the human conversation')}
+      <section class="report-section coach-warning"><strong>Consultant stance</strong><p>Be willing to make a useful assumption, then make it easy for the person to correct you. The goal is not to prove the assessment right; it is to get to a more truthful conversation faster.</p></section>
+      <section class="report-section"><div class="report-section-heading"><span>Case frame</span><h2>What we are actually trying to understand</h2></div><div class="case-frame"><p><strong>Purpose:</strong> ${esc(a.person.purpose||'Not entered')}</p><p><strong>Current challenge:</strong> ${esc(a.person.challenge||'Not entered')}</p><p><strong>Desired outcome:</strong> ${esc(a.person.goals||'Not entered')}</p><p><strong>Observed example:</strong> ${esc(a.person.examples||'Not entered')}</p></div></section>
+      <section class="report-section"><div class="report-section-heading"><span>PI consultation map</span><h2>What the work-style pattern may feel like from the inside</h2></div><div class="compact-card-grid">${a.pi.factors.map(f=>`<article><h3>${esc(f.name)} · ${esc(humanFactorLabel(f.code,f.value))}</h3><p>${esc(factorRelationalSentence(f))}</p><p><strong>Likely need:</strong> ${esc(f.needs.slice(0,3).join('; '))}</p><p><strong>Pressure cost:</strong> ${esc(f.pressure)}</p><p><strong>Validate:</strong> ${esc(f.coachingQuestion)}</p></article>`).join('')}</div>${a.pi.topCombinations.length?`<div class="hypothesis-table">${a.pi.topCombinations.map(c=>`<article><span class="interaction-pill">Factor relationship</span><h3>${esc(c.orientation)}</h3><p>${esc(c.nuance)} ${esc(c.productive)}</p><p><strong>Possible cost:</strong> ${esc(c.pressure)}</p><p><strong>Validate:</strong> ${esc(c.validationQuestion)}</p></article>`).join('')}</div>`:''}${a.pi.adaptation.length?`<div class="coach-warning"><strong>Current-environment hypotheses</strong>${a.pi.adaptation.map(x=>`<p>${esc(x.client_stem)} ${esc(x.energy_cost_hypothesis)}</p>`).join('')}</div>`:''}</section>
+      <section class="report-section"><div class="report-section-heading"><span>Clifton consultation map</span><h2>What the leading talents are likely trying to do</h2></div><div class="compact-card-grid">${a.clifton.top10.map(r=>`<article><span class="interaction-pill">#${r.rank} · ${esc(r.theme.domain)}</span><h3>${esc(r.theme.name)}</h3><p>${esc(r.theme.essence)}</p><p><strong>Contribution:</strong> ${esc(r.theme.contribution)}</p><p><strong>Possible overuse:</strong> ${esc(r.theme.overuse)}</p><p><strong>Ask:</strong> ${esc(r.theme.coaching_question)}</p></article>`).join('')}</div></section>
+      <section class="report-section"><div class="report-section-heading"><span>Integrated hypotheses</span><h2>The assumptions worth testing in conversation</h2></div><div class="hypothesis-table">${hypotheses.map(h=>`<article><div><span class="interaction-pill">${labelInteraction(h.type)}</span>${confidenceBadge(h.confidence)}</div><h3>${esc(h.title)}</h3><p>${esc(h.summary)}</p>${evidenceDetails(h)}</article>`).join('')}</div></section>
+      <section class="report-section two-col"><div><span class="section-tag">Listen for</span><h2>Where the dial may be too high</h2><ul>${[...a.piPressure.map(x=>x.text),...a.themeOveruses.map(x=>x.text)].slice(0,14).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div><div><span class="section-tag">Questions</span><h2>What to validate rather than assume</h2><ol class="question-list">${uniqText([...hypotheses.map(h=>h.validationQuestion),...a.clifton.top5.map(r=>r.theme.coaching_question),...a.pi.factors.map(f=>f.coachingQuestion)]).slice(0,14).map(q=>`<li>${esc(q)}</li>`).join('')}</ol></div></section>
+      <section class="report-section"><div class="report-section-heading"><span>Suggested conversation</span><h2>A practical coaching flow</h2></div><ol class="agenda"><li><strong>5 min</strong><span>Set the outcome and ask what feels most important right now.</span></li><li><strong>10 min</strong><span>Read back the work-style pattern in human language and ask what feels immediately true or off.</span></li><li><strong>10 min</strong><span>Name the leading Clifton themes in the person’s own language and ask how others experience them.</span></li><li><strong>20 min</strong><span>Test the strongest integrated assumptions with recent examples and counterexamples.</span></li><li><strong>10 min</strong><span>Choose one behavioral experiment tied to the current challenge.</span></li><li><strong>5 min</strong><span>Define what the person will notice or do differently before the next conversation.</span></li></ol></section>
+      ${qualityNote(a)}`;
+  }
+
+'''
+s=s[:m.start()]+new_coach+s[m.end():]
+
+# Toolbar modes simplified
+pat=r"  function reportToolbar\(p,a\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemEx
