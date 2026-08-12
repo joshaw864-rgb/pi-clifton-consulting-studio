@@ -1,0 +1,122 @@
+from pathlib import Path
+import re, gzip, base64, hashlib, subprocess, tempfile
+PARTS=['c001','c002a','c002b','c002c','c002d','c003a','c003b','c003c','c003d','c004a','c004b','c004c','c004d','c005','c006','c007a','c007b','c007c','c007d','c008']
+b64=''.join((Path('payload')/(name+'.txt')).read_text().strip() for name in PARTS)
+if len(b64)!=106504: raise SystemExit(f'Unexpected v1 payload length: {len(b64)}')
+s=gzip.decompress(base64.b64decode(b64)).decode('utf-8')
+out=Path('app-v11.html')
+
+# CSS additions
+css_add = r'''
+.empty-state{border:1px dashed var(--line-dark);background:#fff;border-radius:18px;padding:34px;text-align:center;color:var(--muted);grid-column:1/-1}.empty-state h3{margin:4px 0 8px;color:var(--navy);font-size:20px}.empty-state p{max-width:560px;margin:0 auto 18px}.factor-human{font-size:11px;font-weight:750;color:var(--teal);min-width:180px;text-align:right}.human-note{background:var(--teal-soft);border:1px solid #cae5e1;border-radius:12px;padding:12px 14px;color:var(--navy);font-size:12px;line-height:1.5;margin:12px 0 4px}.word-cloud{display:flex;gap:8px;flex-wrap:wrap}.word-chip{display:inline-flex;padding:7px 10px;border-radius:999px;background:var(--teal-soft);color:var(--teal-dark);font-size:11px;font-weight:800}.report-philosophy{padding:15px 17px;border-radius:13px;background:linear-gradient(135deg,#edf7f5,#f8fbfa);border:1px solid #d5ebe7;color:var(--navy);margin:0 0 18px}.report-philosophy strong{color:var(--teal-dark)}
+@media(max-width:700px){.factor-human{min-width:0;text-align:left;grid-column:1/-1}.factor-row{grid-template-columns:1fr}.factor-row input[type=range],.factor-row input[type=number]{width:100%}}
+'''
+s=s.replace('</style></head>', css_add+'</style></head>')
+
+# Storage reset / remove samples by neutralizing the block
+s=s.replace("const STORAGE_KEY='pi_clifton_studio_workspace_v1';", "const STORAGE_KEY='pi_clifton_studio_workspace_v1_1';")
+start=s.find('  const samplePeople=[')
+end=s.find('  const defaultWorkspace=', start)
+if start<0 or end<0: raise SystemExit('sample block not found')
+s=s[:start] + "  const samplePeople=[];\n\n" + s[end:]
+s=s.replace("const defaultWorkspace=()=>({version:'1.0',people:samplePeople,teams:[],settings:{activeView:'dashboard'},createdAt:new Date().toISOString()});", "const defaultWorkspace=()=>({version:'1.1',people:[],teams:[],settings:{activeView:'dashboard'},createdAt:new Date().toISOString()});")
+s=s.replace("let state={view:workspace.settings?.activeView||'dashboard',editingPersonId:workspace.people[0]?.id||null,personReportMode:'quick',relationship:null,teamAnalysis:null,libraryQuery:''};", "let state={view:workspace.settings?.activeView||'dashboard',editingPersonId:workspace.people[0]?.id||null,draftPerson:null,personReportMode:'quick',relationship:null,teamAnalysis:null,libraryQuery:''};")
+
+# Confidence badge: no numeric scores in visible UI
+old="""function confidenceBadge(c){
+    if(!c) return '';
+    return `<span class=\"confidence ${c.label.toLowerCase()}\"><span>${c.label}</span><strong>${c.score}</strong></span>`;
+  }"""
+new="""function confidenceBadge(c){
+    if(!c) return '';
+    const human=c.label==='Confirmed'?'Confirmed':c.label==='Strong'?'Strong signal':c.label==='Moderate'?'Likely':c.label==='Exploratory'?'Worth exploring':c.label;
+    return `<span class=\"confidence ${c.label.toLowerCase()}\"><span>${human}</span></span>`;
+  }"""
+if old not in s: raise SystemExit('confidence block not found')
+s=s.replace(old,new)
+
+# Dashboard replacement
+pat=r"  function renderDashboard\(\)\{.*?\n  \}\n\n  function personCard"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('dashboard function not found')
+new_dashboard=r'''  function renderDashboard(){
+    const analyses=workspace.people.map(p=>E.analyzePerson(p));
+    const recent=analyses.slice(0,6);
+    return shell(`
+      ${pageHeader('Whole-person consulting','Turn people data into relational capital.','PI and CliftonStrengths give us evidence. The studio translates that evidence into language that helps a real person feel understood, build trust faster and know what to do next.',`<button class="button primary" data-action="new-person">${icon('plus')} New profile</button>`)}
+      <section class="hero-grid">
+        <div class="hero-card primary-panel">
+          <span class="eyebrow light">The working philosophy</span>
+          <h2>See me. Understand me. Explain me. Challenge me. Help me.</h2>
+          <p>The math stays backstage. What comes forward is a human read of how someone is likely to work, connect, decide, respond under pressure and create value.</p>
+          <div class="hero-actions"><button class="button inverse" data-action="new-person">Create a profile</button><button class="button text-light" data-view="library">See the method →</button></div>
+        </div>
+        <div class="metric-stack">
+          <div class="metric-card"><strong>1</strong><span>person at a time</span></div>
+          <div class="metric-card"><strong>2</strong><span>people in a relationship</span></div>
+          <div class="metric-card"><strong>Team</strong><span>patterns without labels</span></div>
+          <div class="metric-card"><strong>Human</strong><span>language before jargon</span></div>
+        </div>
+      </section>
+      <section class="section-block">
+        <div class="section-heading"><div><span class="eyebrow">Start here</span><h2>Choose the conversation you are preparing for</h2></div></div>
+        <div class="feature-grid">
+          <button class="feature-card" data-view="individuals"><span class="feature-icon">${icon('person')}</span><h3>Understand one person</h3><p>Create a client guide, a relational spoken readback, a consultant deep dive or a manager guide.</p><span>Open individual studio →</span></button>
+          <button class="feature-card" data-view="relationships"><span class="feature-icon">${icon('link')}</span><h3>Understand two people together</h3><p>Surface what is likely to build trust, create friction and make the relationship easier to navigate.</p><span>Compare two people →</span></button>
+          <button class="feature-card" data-view="teams"><span class="feature-icon">${icon('team')}</span><h3>Understand a team</h3><p>See patterns, differences and working agreements without pretending the team has one personality.</p><span>Build a team brief →</span></button>
+        </div>
+      </section>
+      <section class="section-block">
+        <div class="section-heading"><div><span class="eyebrow">People</span><h2>${workspace.people.length?'Saved profiles':'Start with your first profile'}</h2></div><button class="button ghost" data-action="new-person">${icon('plus')} Add person</button></div>
+        <div class="people-grid">
+          ${recent.length?recent.map(a=>personCard(a)).join(''):`<div class="empty-state"><span class="eyebrow">Blank workspace</span><h3>No demo profiles to work around.</h3><p>Add a test name, the assessment data you have and whatever context matters. The profile becomes available for individual, relationship and team work after you save it.</p><button class="button primary" data-action="new-person">${icon('plus')} Create first profile</button></div>`}
+        </div>
+      </section>
+      <section class="quality-banner">
+        <div>${icon('check')}</div><div><strong>Interpret boldly enough to be useful, humbly enough to be wrong.</strong><p>The studio makes responsible assumptions, then treats them as hypotheses to confirm with the person and the context—not as a diagnosis or a permanent label.</p></div>
+      </section>
+    `);
+  }
+
+  function personCard'''
+s=s[:m.start()]+new_dashboard+s[m.end():]
+
+# Add robust new-person workflow after blankPerson function
+# Replace renderIndividuals block and insert startNewPerson
+pat=r"  function renderIndividuals\(\)\{.*?\n  \}\n\n  function factorInput"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('renderIndividuals not found')
+new_ind=r'''  function startNewPerson(){
+    state.draftPerson=blankPerson();
+    state.editingPersonId=state.draftPerson.id;
+    state.view='individuals';
+    state.personReportMode='quick';
+    saveWorkspace();
+    render();
+    setTimeout(()=>$('#personForm input[name="name"]')?.focus(),50);
+  }
+
+  function renderIndividuals(){
+    let p=personById(state.editingPersonId);
+    if(!p && state.draftPerson && state.draftPerson.id===state.editingPersonId) p=state.draftPerson;
+    if(!p && workspace.people.length){ p=workspace.people[0]; state.editingPersonId=p.id; state.draftPerson=null; }
+    if(!p){ state.draftPerson=blankPerson(); p=state.draftPerson; state.editingPersonId=p.id; }
+    const isSaved=workspace.people.some(x=>x.id===p.id);
+    const a=isSaved?E.analyzePerson(p):null;
+    return shell(`
+      ${pageHeader('Individual studio','Build a person, not an assessment profile.','Enter the assessment data you have, add the context that matters and let the studio translate it into relational language. The exact math stays available for interpretation but stays out of the client conversation.',`<button class="button primary" data-action="new-person">${icon('plus')} New profile</button>`)}
+      <div class="studio-layout">
+        <aside class="record-list">
+          <div class="record-list-heading"><strong>Saved people</strong><span>${workspace.people.length}</span></div>
+          ${workspace.people.length?workspace.people.map(x=>`<button class="record-item ${x.id===p.id?'active':''}" data-action="select-person" data-id="${x.id}"><span class="avatar tiny">${initials(x.name)}</span><span><strong>${esc(x.name)}</strong><small>${esc(x.role||'No role')}</small></span></button>`).join(''):`<div class="human-note">No examples are preloaded. Save a profile and it will appear here.</div>`}
+          <button class="record-item add" data-action="new-person">${icon('plus')}<span><strong>Add a person</strong><small>Start a blank profile</small></span></button>
+        </aside>
+        <section class="studio-main">
+          ${personEditor(p)}
+          ${a?`<div class="report-workspace">${reportToolbar(p,a)}<div id="personReport" class="report-paper">${renderPersonReport(a,state.personReportMode)}</div></div>`:''}
+        </section>
+      </div>
+    `);
+  }
+
+  function factorInput'''
