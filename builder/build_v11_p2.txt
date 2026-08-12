@@ -1,0 +1,111 @@
+editingPersonId=state.draftPerson.id;
+    state.view='individuals';
+    state.personReportMode='quick';
+    saveWorkspace();
+    render();
+    setTimeout(()=>$('#personForm input[name="name"]')?.focus(),50);
+  }
+
+  function renderIndividuals(){
+    let p=personById(state.editingPersonId);
+    if(!p && state.draftPerson && state.draftPerson.id===state.editingPersonId) p=state.draftPerson;
+    if(!p && workspace.people.length){ p=workspace.people[0]; state.editingPersonId=p.id; state.draftPerson=null; }
+    if(!p){ state.draftPerson=blankPerson(); p=state.draftPerson; state.editingPersonId=p.id; }
+    const isSaved=workspace.people.some(x=>x.id===p.id);
+    const a=isSaved?E.analyzePerson(p):null;
+    return shell(`
+      ${pageHeader('Individual studio','Build a person, not an assessment profile.','Enter the assessment data you have, add the context that matters and let the studio translate it into relational language. The exact math stays available for interpretation but stays out of the client conversation.',`<button class="button primary" data-action="new-person">${icon('plus')} New profile</button>`)}
+      <div class="studio-layout">
+        <aside class="record-list">
+          <div class="record-list-heading"><strong>Saved people</strong><span>${workspace.people.length}</span></div>
+          ${workspace.people.length?workspace.people.map(x=>`<button class="record-item ${x.id===p.id?'active':''}" data-action="select-person" data-id="${x.id}"><span class="avatar tiny">${initials(x.name)}</span><span><strong>${esc(x.name)}</strong><small>${esc(x.role||'No role')}</small></span></button>`).join(''):`<div class="human-note">No examples are preloaded. Save a profile and it will appear here.</div>`}
+          <button class="record-item add" data-action="new-person">${icon('plus')}<span><strong>Add a person</strong><small>Start a blank profile</small></span></button>
+        </aside>
+        <section class="studio-main">
+          ${personEditor(p)}
+          ${a?`<div class="report-workspace">${reportToolbar(p,a)}<div id="personReport" class="report-paper">${renderPersonReport(a,state.personReportMode)}</div></div>`:''}
+        </section>
+      </div>
+    `);
+  }
+
+  function factorInput'''
+s=s[:m.start()]+new_ind+s[m.end():]
+
+# Human factor helpers inserted before factorInput definition
+needle="  function factorInput(group,label,values,show=true){"
+helpers=r'''  function humanFactorLabel(code,value){
+    const band=E.bandFor(code,Number(value)||0);
+    return band?.descriptor ? band.descriptor.charAt(0).toUpperCase()+band.descriptor.slice(1) : 'Context-dependent';
+  }
+  function factorRelationalSentence(f){
+    const strong=Math.abs(f.value)>=1.5;
+    const hi=f.value>=0.45, lo=f.value<=-0.45;
+    const lead=strong?'There is a strong pull here: ':'';
+    if(f.code==='A') return lead+(hi?'you are likely to want real ownership and enough room to put your thumbprint on the outcome. You may ask for input, but you probably do not need consensus on every step.':lo?'you are likely to work through collaboration and shared success. You may naturally make room for other voices before pushing your own agenda.':'you can move between taking the lead and sharing ownership depending on what the situation needs.');
+    if(f.code==='B') return lead+(hi?'interaction is likely to create energy. Talking something through can be part of how you think, connect and build momentum.':lo?'you probably do some of your best thinking before you speak. Quiet does not mean disengaged; it often means you are processing, observing or deciding what is worth saying.':'you can be social or reflective without needing either mode all the time. Context and trust probably matter more than sheer amount of interaction.');
+    if(f.code==='C') return lead+(hi?'you are likely to value steadiness, continuity and enough time to let things settle. Sudden changes may be easier when the reason and path are clear.':lo?'you are likely to create pace. Variety, movement and multiple priorities can feel energizing, while repetition or unnecessary delay can feel heavier than it does to others.':'you can flex between urgency and steadiness; the rest of the pattern is more likely to determine your visible pace.');
+    if(f.code==='D') return lead+(hi?'clarity matters. You are likely to feel more confident when expectations, standards and the definition of “right” are visible.':lo?'you are likely to prefer room to use judgment rather than being boxed in by process. You may care more about the outcome than following a prescribed route to get there.':'you can work with structure without needing structure to run the show. You likely flex based on risk, expertise and what the work requires.');
+    return f.contribution;
+  }
+  function factorHumanInput(code,value){ return humanFactorLabel(code,value); }
+  function humanEvidenceLabel(e){
+    if(e.source==='PI factor') return 'PI behavioral drive';
+    if(e.source==='PI combination') return 'PI factor relationship';
+    if(e.source==='PI adaptation') return 'Current-environment adaptation';
+    if(e.source==='PI special relationship') return 'PI decision pattern';
+    if(e.source==='Clifton theme') return String(e.label||'Clifton theme').replace(/^#\d+\s+/, '');
+    return e.label||e.source||'Evidence';
+  }
+  function wordsThatFit(a){
+    const out=[];
+    a.pi.factors.forEach(f=>out.push(humanFactorLabel(f.code,f.value)));
+    a.clifton.top5.forEach(r=>(r.theme.keywords||[]).slice(0,2).forEach(k=>out.push(k)));
+    return [...new Set(out.map(x=>String(x).trim()).filter(Boolean))].slice(0,12);
+  }
+
+'''
+s=s.replace(needle,helpers+needle,1)
+
+# factorInput replacement
+pat=r"  function factorInput\(group,label,values,show=true\)\{.*?\n  \}\n  const FACTOR_NAMES_UI"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('factorInput block not found')
+new_factor=r'''  function factorInput(group,label,values,show=true){
+    if(!show) return '';
+    return `<div class="factor-group"><div class="factor-group-title"><strong>${label}</strong><span>Enter the exact position from the PI graph. Reports translate it into plain language.</span></div>${['A','B','C','D'].map(f=>`
+      <div class="factor-row">
+        <div class="factor-label"><span class="factor-letter factor-${f.toLowerCase()}">${f}</span><span><strong>${FACTOR_NAMES_UI[f]}</strong><small>${FACTOR_POLES[f]}</small></span></div>
+        <input type="range" min="-3" max="3" step="0.05" value="${values?.[f]??0}" data-factor-range="${group}.${f}" aria-label="${label} ${f}">
+        <input type="number" min="-3" max="3" step="0.05" value="${values?.[f]??0}" data-factor-number="${group}.${f}" aria-label="${label} ${f} numeric value">
+        <div class="factor-human" data-factor-human="${group}.${f}">${factorHumanInput(f,values?.[f]??0)}</div>
+      </div>`).join('')}</div>`;
+  }
+  const FACTOR_NAMES_UI'''
+s=s[:m.start()]+new_factor+s[m.end():]
+
+# Person editor wording and remove sample button
+s=s.replace('Only the fields needed for the selected output are required. More context improves specificity.','Use the data points as evidence, then add enough real-world context to make the interpretation feel like a person rather than a score.')
+s=s.replace('<details class="form-section" open><summary><span>2</span>Predictive Index data</summary><div class="form-section-body">','<details class="form-section" open><summary><span>2</span>Predictive Index data</summary><div class="form-section-body"><div class="human-note"><strong>Internal input:</strong> exact values help the engine read intensity and factor relationships. Client-facing outputs will describe the person in words—not as plus/minus scores or standard deviations.</div>')
+s=s.replace('<button type="button" class="button ghost" data-action="sample-themes">Use sample ranking</button>','')
+s=s.replace('Order matters. The engine uses rank-aware editorial selection but does not pretend ranks are equal numerical units.','Order matters. The engine respects theme rank, then translates the combination into everyday language rather than treating the themes like a scorecard.')
+s=s.replace('${icon(\'save\')} Save and generate','${icon(\'save\')} Save profile and generate')
+
+# PI chips human only
+pat=r"  function piChips\(a\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('piChips not found')
+new_pichips=r'''  function piChips(a){
+    if(a.pi.mode==='profile_only') return a.pi.referenceProfile?`<span class="chip neutral">${esc(a.pi.referenceProfile.name)} · broad PI shorthand</span>`:'<span class="chip neutral">PI data not supplied</span>';
+    return a.pi.factors.map(f=>`<span class="chip factor-chip factor-${f.code.toLowerCase()}">${esc(f.name)} · ${esc(humanFactorLabel(f.code,f.value))}</span>`).join('');
+  }'''
+s=s[:m.start()]+new_pichips+s[m.end():]
+
+# evidenceDetails humanized, no score
+pat=r"  function evidenceDetails\(insight\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('evidenceDetails not found')
+new_ev=r'''  function evidenceDetails(insight){
+    return `<details class="evidence"><summary>What is informing this read · ${esc(insight.confidence.label)}</summary><div>${insight.evidence.map(e=>`<p><strong>${esc(humanEvidenceLabel(e))}</strong><span>${esc(e.source)}</span>${esc(e.detail||'')}</p>`).join('')}<p class="validation"><strong>Test it:</strong> ${esc(insight.validationQuestion)}</p></div></details>`;
+  }'''
+s=s[:m.start()]+new_ev+s[m.end():]
