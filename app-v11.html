@@ -1056,6 +1056,11 @@ a{color:inherit}
     return `<details class="evidence"><summary>What is informing this read · ${esc(insight.confidence.label)}</summary><div>${insight.evidence.map(e=>`<p><strong>${esc(humanEvidenceLabel(e))}</strong><span>${esc(e.source)}</span>${esc(e.detail||'')}</p>`).join('')}<p class="validation"><strong>Test it:</strong> ${esc(insight.validationQuestion)}</p></div></details>`;
   }
 
+  function piChips(a){
+    if(a.pi.mode==='profile_only') return a.pi.referenceProfile?`<span class="chip neutral">${esc(a.pi.referenceProfile.name)} · broad PI shorthand</span>`:'<span class="chip neutral">PI data not supplied</span>';
+    return a.pi.factors.map(f=>`<span class="chip factor-chip factor-${f.code.toLowerCase()}">${esc(f.name)} · ${esc(humanFactorLabel(f.code,f.value))}</span>`).join('');
+  }
+
   function reportSnapshot(a){
     return `<section class="report-section snapshot"><div><h2>How you are likely to operate at work</h2><div class="chip-row">${piChips(a)}</div>${a.pi.referenceProfile?`<p class="muted"><strong>${esc(a.pi.referenceProfile.name)}</strong> is useful shorthand, but the read below comes from the fuller pattern rather than the label alone.</p>`:''}</div><div><h2>How you naturally create value</h2><div class="chip-row">${themeChips(a,5)}</div><p class="muted">These themes help explain what you naturally notice, pursue and contribute. They do not define your whole personality.</p></div></section>`;
   }
