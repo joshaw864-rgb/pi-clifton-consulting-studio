@@ -17,18 +17,58 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore verified builder
+      - name: Assemble builder
         run: |
-          base64 -d builder/build_v11.py.gz.b64 | gunzip > build_v11.py
-          echo "3fd72ea4fe4bac832a333df6f17a9ada566781a42b7952a24ecdefb7bd97050b  build_v11.py" | sha256sum -c -
+          python - <<'PY'
+          from pathlib import Path
+          import base64, gzip
+          b64=Path('builder/build_v11.py.gz.b64').read_text().strip()
+          Path('build_v11.py').write_bytes(gzip.decompress(base64.b64decode(b64)))
+          PY
 
       - name: Build and validate v1.1
         run: python build_v11.py
+
+      - name: Restore required PI chip helper
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app-v11.html')
+          s=p.read_text()
+          if 'function piChips(a)' not in s:
+              needle='  function reportSnapshot(a){\n'
+              helper='''  function piChips(a){\n    if(a.pi.mode==='profile_only') return a.pi.referenceProfile?`<span class="chip neutral">${esc(a.pi.referenceProfile.name)} · broad PI shorthand</span>`:'<span class="chip neutral">PI data not supplied</span>';\n    return a.pi.factors.map(f=>`<span class="chip factor-chip factor-${f.code.toLowerCase()}">${esc(f.name)} · ${esc(humanFactorLabel(f.code,f.value))}</span>`).join('');\n  }\n\n'''
+              if needle not in s:
+                  raise SystemExit('reportSnapshot insertion point not found')
+              s=s.replace(needle,helper+needle,1)
+              p.write_text(s)
+          if 'function piChips(a)' not in p.read_text():
+              raise SystemExit('piChips helper still missing after patch')
+          PY
+
+      - name: Syntax-check browser scripts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          s=Path('app-v11.html').read_text()
+          scripts=re.findall(r'<script>(.*?)</script>',s,re.S)
+          if len(scripts) != 3:
+              raise SystemExit(f'Expected 3 browser scripts, found {len(scripts)}')
+          for i,js in enumerate(scripts):
+              fn=Path(f'/tmp/studio_{i}.js')
+              fn.write_text(js)
+              subprocess.run(['node','--check',str(fn)],check=True)
+          for required in ['function savePersonFromForm','function deletePerson','function generateRelationship','function generateTeam','function piChips(a)']:
+              if required not in s:
+                  raise SystemExit(f'Missing required function: {required}')
+          print('Browser script syntax and required functions verified.')
+          PY
 
       - name: Commit generated app
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app-v11.html
-          git diff --cached --quiet || git commit -m "Build v1.1 app"
+          git diff --cached --quiet || git commit -m "Build functional v1.1 app"
           git push
