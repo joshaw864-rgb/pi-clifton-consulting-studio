@@ -1,0 +1,67 @@
+it('reportToolbar not found')
+new_toolbar=r'''  function reportToolbar(p,a){
+    const modes=[['quick','Client Guide'],['readback','Relational Readback'],['coach','Consultant Deep Dive'],['manager','Leader / Manager Guide']];
+    return `<div class="report-toolbar"><div><span class="eyebrow">Generated output</span><strong>${esc(p.name)}</strong>${confidenceBadge(a.overallConfidence)}</div><div class="report-controls"><select id="personReportMode">${modes.map(([v,l])=>`<option value="${v}" ${state.personReportMode===v?'selected':''}>${l}</option>`).join('')}</select><button class="button ghost compact" data-action="copy-report">Copy</button><button class="button ghost compact" data-action="print-report">${icon('print')} Print / PDF</button><button class="button ghost compact" data-action="download-report">${icon('download')} HTML</button></div></div>`;
+  }'''
+s=s[:m.start()]+new_toolbar+s[m.end():]
+
+# RenderPersonReport simplified
+pat=r"  function renderPersonReport\(a,mode\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('renderPersonReport not found')
+new_rpr=r'''  function renderPersonReport(a,mode){
+    return mode==='readback'?readbackReport(a):mode==='coach'?coachReport(a):mode==='manager'?managerReport(a):quickReport(a);
+  }'''
+s=s[:m.start()]+new_rpr+s[m.end():]
+
+# bindEvents robust new/select
+s=s.replace("$$('[data-action=\"new-person\"]').forEach(el=>el.addEventListener('click',()=>{const p=blankPerson();state.editingPersonId=p.id;state.view='individuals';render();}));", "$$('[data-action=\"new-person\"]').forEach(el=>el.addEventListener('click',startNewPerson));")
+s=s.replace("$$('[data-action=\"select-person\"]').forEach(el=>el.addEventListener('click',()=>{state.editingPersonId=el.dataset.id;render();}));", "$$('[data-action=\"select-person\"]').forEach(el=>el.addEventListener('click',()=>{state.draftPerson=null;state.editingPersonId=el.dataset.id;render();}));")
+s=s.replace("$$('[data-action=\"edit-person\"]').forEach(el=>el.addEventListener('click',()=>{state.editingPersonId=el.dataset.id;setView('individuals');}));", "$$('[data-action=\"edit-person\"]').forEach(el=>el.addEventListener('click',()=>{state.draftPerson=null;state.editingPersonId=el.dataset.id;setView('individuals');}));")
+s=s.replace("$$('[data-action=\"analyze-person\"]').forEach(el=>el.addEventListener('click',()=>{state.editingPersonId=el.dataset.id;state.personReportMode='quick';setView('individuals');setTimeout(()=>$('#personReport')?.scrollIntoView({behavior:'smooth'}),50);}));", "$$('[data-action=\"analyze-person\"]').forEach(el=>el.addEventListener('click',()=>{state.draftPerson=null;state.editingPersonId=el.dataset.id;state.personReportMode='quick';setView('individuals');setTimeout(()=>$('#personReport')?.scrollIntoView({behavior:'smooth'}),50);}));")
+# remove sample listener entirely
+s=re.sub(r"\n\s*\$\('\[data-action=\"sample-themes\"\]',form\)\?\.addEventListener\('click',\(\)=>\{.*?\}\);",'',s,flags=re.S)
+# live factor human labels in bind form: replace listener lines
+old="""    $$('[data-factor-range]',form).forEach(r=>r.addEventListener('input',()=>{const n=$(`[data-factor-number="${r.dataset.factorRange}"]`,form);if(n)n.value=r.value;}));
+    $$('[data-factor-number]',form).forEach(n=>n.addEventListener('input',()=>{const r=$(`[data-factor-range="${n.dataset.factorNumber}"]`,form);if(r)r.value=n.value;}));"""
+new="""    function syncFactorHuman(path,value){const code=path.split('.').pop();const h=$(`[data-factor-human="${path}"]`,form);if(h)h.textContent=factorHumanInput(code,value);}
+    $$('[data-factor-range]',form).forEach(r=>r.addEventListener('input',()=>{const n=$(`[data-factor-number="${r.dataset.factorRange}"]`,form);if(n)n.value=r.value;syncFactorHuman(r.dataset.factorRange,r.value);}));
+    $$('[data-factor-number]',form).forEach(n=>n.addEventListener('input',()=>{const r=$(`[data-factor-range="${n.dataset.factorNumber}"]`,form);if(r)r.value=n.value;syncFactorHuman(n.dataset.factorNumber,n.value);}));"""
+if old not in s: raise SystemExit('factor bind block not found')
+s=s.replace(old,new)
+
+# Save person from draft; ensure state cleared
+s=s.replace("const existing=personById(id);", "const existing=personById(id)||(state.draftPerson?.id===id?state.draftPerson:null);")
+s=s.replace("state.editingPersonId=p.id; saveWorkspace(); render();", "state.editingPersonId=p.id; state.draftPerson=null; saveWorkspace(); render();")
+s=s.replace("state.editingPersonId=workspace.people[0]?.id||null;saveWorkspace();render();", "state.editingPersonId=workspace.people[0]?.id||null;state.draftPerson=null;saveWorkspace();render();")
+
+# Remove data-ish factor text in detailed report even though hidden from main toolbar; safer if reached via old state or link
+s=s.replace("<h3>${esc(f.headline)} · ${E.formatFactor(f.value)}</h3>","<h3>${esc(f.name)} · ${esc(humanFactorLabel(f.code,f.value))}</h3>")
+s=s.replace("<span class=\"interaction-pill\">${esc(c.code)} · spread ${c.spread.toFixed(2)} · ${esc(c.relation.replaceAll('_',' '))}</span>","<span class=\"interaction-pill\">Factor relationship</span>")
+s=s.replace("<span class=\"interaction-pill\">${x.factor_code} ${E.formatFactor(x.from)} → ${E.formatFactor(x.to)}</span>","<span class=\"interaction-pill\">Current-environment shift</span>")
+
+# Quality note warmer
+pat=r"  function qualityNote\(a\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('qualityNote not found')
+new_q=r'''  function qualityNote(a){
+    const msgs=[...a.pi.quality.messages,...a.clifton.quality.messages];
+    return `<footer class="report-footer"><p><strong>Keep it human.</strong> This is a well-grounded read of patterns, not a diagnosis or a claim that the assessment knows everything about the person. The best interpretation becomes more accurate when a real example confirms it—or when the person tells us where it misses.</p>${msgs.length?`<p><strong>Data note:</strong> ${msgs.map(esc).join(' ')}</p>`:''}<p>Independent consulting tool. Predictive Index and CliftonStrengths are trademarks of their respective owners. This report is not an official assessment report.</p></footer>`;
+  }'''
+s=s[:m.start()]+new_q+s[m.end():]
+
+# Sidebar card language
+s=s.replace('<span class="eyebrow">Local workspace</span>','<span class="eyebrow">Your workspace</span>')
+s=s.replace('Your data stays in this browser unless you export it.','Profiles stay in this browser unless you export the workspace.')
+
+# Title/description version
+s=s.replace('<meta name="description" content="Independent PI + CliftonStrengths integrated consulting studio for individuals, relationships and teams.">','<meta name="description" content="Whole-person consulting studio that translates PI and CliftonStrengths evidence into relational, practical guidance.">')
+
+out.write_text(s)
+# Basic release validation: all inline scripts must parse in Node.
+scripts=re.findall(r'<script>(.*?)</script>',s,re.S)
+for i,code in enumerate(scripts,1):
+    tmp=Path(f'.check_v11_{i}.js'); tmp.write_text(code)
+    subprocess.run(['node','--check',str(tmp)],check=True)
+    tmp.unlink()
+print('wrote',out,'size',out.stat().st_size,'sha256',hashlib.sha256(out.read_bytes()).hexdigest(),'scripts',len(scripts))
