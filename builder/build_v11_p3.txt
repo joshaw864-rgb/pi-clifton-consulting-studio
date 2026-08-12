@@ -1,0 +1,87 @@
+slates the combination into everyday language rather than treating the themes like a scorecard.')
+s=s.replace('${icon(\'save\')} Save and generate','${icon(\'save\')} Save profile and generate')
+
+# PI chips human only
+pat=r"  function piChips\(a\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('piChips not found')
+new_pichips=r'''  function piChips(a){
+    if(a.pi.mode==='profile_only') return a.pi.referenceProfile?`<span class="chip neutral">${esc(a.pi.referenceProfile.name)} · broad PI shorthand</span>`:'<span class="chip neutral">PI data not supplied</span>';
+    return a.pi.factors.map(f=>`<span class="chip factor-chip factor-${f.code.toLowerCase()}">${esc(f.name)} · ${esc(humanFactorLabel(f.code,f.value))}</span>`).join('');
+  }'''
+s=s[:m.start()]+new_pichips+s[m.end():]
+
+# evidenceDetails humanized, no score
+pat=r"  function evidenceDetails\(insight\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('evidenceDetails not found')
+new_ev=r'''  function evidenceDetails(insight){
+    return `<details class="evidence"><summary>What is informing this read · ${esc(insight.confidence.label)}</summary><div>${insight.evidence.map(e=>`<p><strong>${esc(humanEvidenceLabel(e))}</strong><span>${esc(e.source)}</span>${esc(e.detail||'')}</p>`).join('')}<p class="validation"><strong>Test it:</strong> ${esc(insight.validationQuestion)}</p></div></details>`;
+  }'''
+s=s[:m.start()]+new_ev+s[m.end():]
+
+# Report header humanized
+pat=r"  function reportHeader\(a,title,kicker='Integrated PI \+ CliftonStrengths'\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('reportHeader not found')
+new_header=r'''  function reportHeader(a,title,kicker='Whole-person consulting read'){ const p=a.person; return `<header class="report-header"><div><span class="report-kicker">${kicker}</span><h1>${esc(title)}</h1><p>${esc(p.name)} · ${esc(p.role||'Role not entered')}${p.organization?` · ${esc(p.organization)}`:''}</p></div><div class="report-confidence"><small>Working read</small>${confidenceBadge(a.overallConfidence)}</div></header>`; }'''
+s=s[:m.start()]+new_header+s[m.end():]
+
+# Report snapshot humanized
+pat=r"  function reportSnapshot\(a\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('reportSnapshot not found')
+new_snap=r'''  function reportSnapshot(a){
+    return `<section class="report-section snapshot"><div><h2>How you are likely to operate at work</h2><div class="chip-row">${piChips(a)}</div>${a.pi.referenceProfile?`<p class="muted"><strong>${esc(a.pi.referenceProfile.name)}</strong> is useful shorthand, but the read below comes from the fuller pattern rather than the label alone.</p>`:''}</div><div><h2>How you naturally create value</h2><div class="chip-row">${themeChips(a,5)}</div><p class="muted">These themes help explain what you naturally notice, pursue and contribute. They do not define your whole personality.</p></div></section>`;
+  }'''
+s=s[:m.start()]+new_snap+s[m.end():]
+
+# Add words section before reportInsightCards
+needle='  function reportInsightCards(a,count=6){'
+words=r'''  function wordsSection(a){
+    const words=wordsThatFit(a);
+    return `<section class="report-section"><div class="report-section-heading"><span>At a glance</span><h2>Words and phrases that may feel familiar</h2></div><div class="word-cloud">${words.map(w=>`<span class="word-chip">${esc(w)}</span>`).join('')}</div></section>`;
+  }
+
+'''
+s=s.replace(needle,words+needle,1)
+
+# reportInsightCards human, hide evidence by default
+pat=r"  function reportInsightCards\(a,count=6\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('reportInsightCards not found')
+new_cards=r'''  function reportInsightCards(a,count=6,showEvidence=false){
+    return `<section class="report-section"><div class="report-section-heading"><span>Whole-person interpretation</span><h2>How this is likely to show up in real life</h2></div><div class="insight-grid">${a.topInsights.slice(0,count).map((i,idx)=>`<article class="insight-card"><div class="insight-meta"><span>${idx+1}</span><em>${labelInteraction(i.type)}</em></div><h3>${esc(i.title)}</h3><p>${esc(i.summary)}</p>${showEvidence?evidenceDetails(i):`<p class="validation"><strong>Worth asking:</strong> ${esc(i.validationQuestion)}</p>`}</article>`).join('')}</div></section>`;
+  }'''
+s=s[:m.start()]+new_cards+s[m.end():]
+
+# needs / bestPressure / development headings human
+s=s.replace('Conditions for strong performance','What helps this person thrive').replace('What this person is likely to need','What is likely to bring out the best')
+s=s.replace('Best-day expression','At your best').replace('When this pattern is working well','What people can count on from you')
+s=s.replace('Pressure expression','When the dial turns up').replace('What to monitor when the dial turns up','How the same strengths can become costly')
+s=s.replace('Three useful experiments','Three ways to use this more intentionally')
+
+# Quick report replacement
+pat=r"  function quickReport\(a\)\{.*?\n  \}"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('quickReport not found')
+new_quick=r'''  function quickReport(a){
+    return `${reportHeader(a,'Client Guide','A practical whole-person read')}<div class="report-philosophy"><strong>The goal:</strong> turn assessment evidence into language that helps you recognize yourself, understand how others may experience you and choose how to use your natural patterns more intentionally.</div>${reportSnapshot(a)}${wordsSection(a)}${reportInsightCards(a,6,false)}${needsSection(a)}${bestPressure(a)}${developmentSection(a)}${qualityNote(a)}`;
+  }'''
+s=s[:m.start()]+new_quick+s[m.end():]
+
+# Readback replacement
+pat=r"  function readbackReport\(a\)\{.*?\n  \}\n"
+m=re.search(pat,s,re.S)
+if not m: raise SystemExit('readbackReport not found')
+new_readback=r'''  function readbackReport(a){
+    const p=a.person, themes=a.clifton.top5.map(r=>r.theme.name), insights=a.topInsights.slice(0,4);
+    const piRead=a.pi.mode==='full'?a.pi.factors.map(f=>factorRelationalSentence(f)):[];
+    const themeContrib=a.clifton.top5.slice(0,5).map(r=>`${r.theme.name} brings ${r.theme.contribution.toLowerCase()}`);
+    return `${reportHeader(a,'Relational Readback','How I might say this in the room')}
+      <section class="report-section prose-report">
+        <p>${esc(p.name)}, I want to start with the person rather than the assessments. These results are useful because they give us a few strong clues about what comes naturally to you, what tends to energize you and what other people may experience from you. They are not a box, and I am going to make a few informed guesses along the way. The useful part is noticing what feels true and what does not.</p>
+        ${piRead.length?`<p>From the work-style side, ${esc(piRead[0])} ${esc(piRead[1])}</p><p>There is another part of the pattern that matters just as much: ${esc(piRead[2])} ${esc(piRead[3])}</p>`:''}
+        <p>Your CliftonStrengths add the “how.” Your leading themes are ${esc(joinNatural(themes))}. Put together, ${esc(joinNatural(themeContrib.slice(0,3)))}. That means the way you get to a result may be just as distinctive as the result itself.</p>
+        ${insights.map((i,idx)=>`<p>${idx===0?'One thing I would probably say pretty confidently is':'I also would not be surprised if'} <strong>${esc(i.title.toLowerCase())}</strong>. ${esc(i.summary)} ${idx<2?`I would want to hear a recent example from you, because that usually tells us whether we are seeing the pattern clearly or missing an important part of the context.`:''}</p>`).join('')}
+        <p>There may also be a gap between how you experience yourself and how someone else experiences you. At your best, people may count on you for ${esc(joinNatural([...a.pi.factors.slice(0,2).map(f=>f.contribution.toLowerCase()),...a.clifton.top5.slice(0,2).map(r=>r.theme.contribution.toLowerCase())]))}. When pressure rises, some of those same strengths can turn up too far: ${esc(joinNatural([...a.pi.factors.slice(0,2).map(f=>f.pressure.toLowerCase()),...a.clifton.top5.slice(0,2).map(r=>r.theme.overuse.toLowerCase())]))}.
