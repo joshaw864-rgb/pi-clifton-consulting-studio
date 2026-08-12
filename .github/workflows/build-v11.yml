@@ -3,11 +3,7 @@ name: Build v1.1 app
 on:
   push:
     paths:
-      - 'builder/build_v11_p1.txt'
-      - 'builder/build_v11_p2.txt'
-      - 'builder/build_v11_p3.txt'
-      - 'builder/build_v11_p4.txt'
-      - 'builder/build_v11_p5.txt'
+      - 'builder/build_v11.py.gz.b64'
       - '.github/workflows/build-v11.yml'
   workflow_dispatch:
 
@@ -21,8 +17,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Assemble builder
-        run: cat builder/build_v11_p1.txt builder/build_v11_p2.txt builder/build_v11_p3.txt builder/build_v11_p4.txt builder/build_v11_p5.txt > build_v11.py
+      - name: Restore verified builder
+        run: |
+          base64 -d builder/build_v11.py.gz.b64 | gunzip > build_v11.py
+          echo "3fd72ea4fe4bac832a333df6f17a9ada566781a42b7952a24ecdefb7bd97050b  build_v11.py" | sha256sum -c -
 
       - name: Build and validate v1.1
         run: python build_v11.py
